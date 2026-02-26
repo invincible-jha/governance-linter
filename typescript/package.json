@@ -1,0 +1,45 @@
+{
+  "name": "eslint-plugin-aumos-governance",
+  "version": "0.1.0",
+  "description": "ESLint plugin detecting ungoverned agent actions",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "eslint": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@types/eslint": "^9.6.0",
+    "eslint": "^9.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "eslint",
+    "eslint-plugin",
+    "governance",
+    "agent",
+    "aumos",
+    "static-analysis"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muveraai/aumos-oss"
+  },
+  "homepage": "https://github.com/muveraai/aumos-oss/tree/main/governance-linter"
+}
