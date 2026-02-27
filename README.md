@@ -1,8 +1,39 @@
 # governance-linter
 
 [![Governance Score](https://img.shields.io/badge/governance-self--assessed-blue)](https://github.com/aumos-ai/governance-linter)
+[![npm](https://img.shields.io/npm/v/eslint-plugin-aumos-governance)](https://www.npmjs.com/package/eslint-plugin-aumos-governance)
+[![PyPI](https://img.shields.io/pypi/v/aumos-governance-linter)](https://pypi.org/project/aumos-governance-linter/)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue)](LICENSE)
 
-Static analysis catching ungoverned agent actions. Part of the [AumOS](https://github.com/muveraai/aumos-oss) open-source governance suite.
+Static analysis catching ungoverned agent actions. Part of the [AumOS](https://github.com/aumos-ai) open-source governance suite.
+
+---
+
+## Why Does This Exist?
+
+Governance policies written in agents.md files and SDK configurations only protect you at runtime — when your agent is already running in production, making real decisions, touching real data, spending real money. If a developer forgets to add a consent check before a data-access call, or uses a magic number instead of a named trust constant, that mistake lives silently in the codebase until it either fires in production or an auditor finds it.
+
+The problem is that governance is hard to see. It is not a function that returns a value; it is a *preceding call* that must happen before another call. Traditional code review catches logic errors, but reviewers rarely notice that a `tool.run()` call on line 47 has no `engine.check()` anywhere in the preceding lines. The gap is invisible until something goes wrong.
+
+Static analysis makes the invisible visible. The same way a spell-checker catches typos before a document is published, governance-linter catches policy gaps before code reaches a production agent runtime. It runs in your editor, in pre-commit hooks, and in CI — anywhere you can run ESLint or a Python CLI.
+
+**The spell-checker analogy:** A governance policy gap is not a runtime crash; it is a silent omission — like a missing word that changes the meaning of a sentence. You need a tool that reads the code the way an auditor would, not just the way a compiler would. governance-linter is that tool.
+
+**Without this tool:** Policy violations reach production silently. An audit finds that 12 tool calls across 4 agent services have no governance check. Remediation is expensive and disruptive. With governance-linter in CI, violations are caught at the pull request stage, before they are ever deployed.
+
+---
+
+## Who Is This For?
+
+| Audience | Use Case |
+|---|---|
+| **Developer** | Catch governance mistakes in your editor or pre-commit hook before they reach code review |
+| **Enterprise** | Enforce a governance baseline in CI across every agent service — auditable, automatable, fast |
+| **Both** | Write custom rules to encode organisation-specific governance patterns that no generic linter ships |
+
+---
+
+## Overview
 
 Ships as two complementary tools:
 
@@ -33,6 +64,8 @@ Full rule documentation: [docs/rules.md](docs/rules.md)
 
 ### TypeScript (ESLint)
 
+**Prerequisites:** Node.js >= 20, ESLint >= 9
+
 ```bash
 npm install --save-dev eslint-plugin-aumos-governance eslint
 ```
@@ -48,14 +81,27 @@ export default [
 
 ```bash
 npx eslint "src/**/*.ts"
+# src/agent.ts
+#   12:5  error  Tool invocation at line 12 has no preceding governance check  aumos-governance/no-ungoverned-tool-call
+#   27:3  warn   LLM call at line 27 has no preceding budget check             aumos-governance/require-budget-check
+# 2 problems (1 error, 1 warning)
 ```
 
+**What just happened?** ESLint traversed your TypeScript AST looking for tool invocations and LLM calls that have no preceding `engine.check()` or `budget.check()` call. Problems print inline in your editor and fail CI just like a TypeScript type error.
+
 ### Python
+
+**Prerequisites:** Python >= 3.10
 
 ```bash
 pip install aumos-governance-linter
 governance-lint src/
+# src/agent.py:34  [no-ungoverned-tool-call]  tool.run() called without prior engine.check()
+# src/tools.py:61  [require-consent-check]    data_store.read() called without prior consent.check()
+# 2 violation(s) found
 ```
+
+**What just happened?** The CLI walked your source tree, parsed each Python file with the standard `ast` module, and applied governance rules as AST visitors. The output lists file, line, rule name, and a plain-English explanation — machine-readable with `--format json` for CI annotation.
 
 ---
 
@@ -186,6 +232,42 @@ async function summarise(text: string) {
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TD
+    subgraph Editor["Editor / IDE"]
+        TS_Source[TypeScript Source] -->|ESLint language server| ESLintPlugin[eslint-plugin-aumos-governance\nAST rule visitors]
+    end
+
+    subgraph CI["CI Pipeline"]
+        Py_Source[Python Source] -->|governance-lint CLI| ASTLinter[GovernanceLinter\nPython AST visitors]
+        TS_Source2[TypeScript Source] -->|npx eslint| ESLintPlugin2[eslint-plugin-aumos-governance]
+    end
+
+    ESLintPlugin -->|violations| DevFeedback([Developer: fix before commit])
+    ASTLinter -->|violations JSON| PRAnnotation([PR Annotation / Build Fail])
+    ESLintPlugin2 -->|violations| PRAnnotation
+
+    PRAnnotation -->|clean build| ProductionDeploy([Production Deploy\nGovernance-verified code])
+
+    classDef tool fill:#e8f0fe,stroke:#4a6
+    classDef output fill:#f5f5f5,stroke:#999
+    class ESLintPlugin,ESLintPlugin2,ASTLinter tool
+    class DevFeedback,PRAnnotation,ProductionDeploy output
+```
+
+### How Rules Work
+
+Each rule is an AST visitor. For every function body it encounters:
+1. It collects all call expressions that match a governed pattern (e.g., calls to `tool.run`, `openai.chat`, `data_store.read`).
+2. It scans preceding statements in the same scope for a matching prerequisite call (e.g., `engine.check`, `budget.check`, `consent.check`).
+3. If the prerequisite is absent, it reports a violation with file path, line number, rule name, and explanation.
+
+Custom rules follow the same visitor interface — see [docs/rules.md](docs/rules.md) for the authoring guide.
+
+---
+
 ## CI Integration
 
 See [docs/ci-integration.md](docs/ci-integration.md) for:
@@ -217,6 +299,17 @@ governance-lint src/           # self-lint
 ruff check src/                # style lint
 mypy src/                      # type check
 ```
+
+---
+
+## Related Projects
+
+| Project | Relationship |
+|---|---|
+| [aumos-core](https://github.com/aumos-ai/aumos-core) | Runtime enforcement — governance-linter catches gaps at dev time, aumos-core enforces the same policies at runtime |
+| [agent-shadow-mode](https://github.com/aumos-ai/agent-shadow-mode) | Behavioural evaluation — governance-linter checks code structure; shadow mode observes runtime decisions |
+| [mcp-server-trust-gate](https://github.com/aumos-ai/mcp-server-trust-gate) | MCP runtime gate — linter ensures SDK usage is correct before the gate ever executes |
+| [agents-md-spec](https://github.com/aumos-ai/agents-md-spec) | The agents.md specification that governance-linter rules are built to enforce |
 
 ---
 
