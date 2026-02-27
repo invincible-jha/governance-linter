@@ -1,0 +1,331 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 MuVeraAI Corporation
+#
+# AumOS Governance Linter — Semgrep rules
+#
+# These rules mirror the Python AST linter and ESLint plugin, providing
+# identical coverage for CI pipelines that already use Semgrep.
+#
+# Usage:
+#   semgrep --config semgrep/governance-rules.yml src/
+#   semgrep --config semgrep/governance-rules.yml --severity WARNING src/
+#
+# Documentation: https://docs.aumos.ai/guides/semgrep-rules
+
+rules:
+
+  # ── AUMOS-001: Ungoverned OpenAI API call (legacy SDK) ──────────────────────
+
+  - id: ungoverned-openai-completion-create
+    pattern: openai.ChatCompletion.create(...)
+    message: >
+      Ungoverned OpenAI API call (legacy SDK). Wrap the call with
+      GovernedOpenAI or add governance checks before calling
+      openai.ChatCompletion.create(). Every LLM API call must pass through
+      the governance layer so that trust checks and budget limits are enforced.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-001
+      category: governance
+      subcategory: [audit]
+      technology: [ai, openai]
+      references:
+        - https://docs.aumos.ai/guides/governed-openai
+      fix-guidance: >
+        Replace with:
+          from aumos_governance import GovernedOpenAI
+          governed = GovernedOpenAI(trust_level=2)
+          governed.chat.completions.create(...)
+
+  # ── AUMOS-001b: Ungoverned OpenAI client (v4+ SDK) ──────────────────────────
+
+  - id: ungoverned-openai-client-call
+    patterns:
+      - pattern: $CLIENT.chat.completions.create(...)
+      - pattern-not-inside: |
+          $GOVERNED = GovernedOpenAI(...)
+          ...
+      - pattern-not-inside: |
+          governed_openai = GovernedOpenAI(...)
+          ...
+      - pattern-not-inside: |
+          $GOVERNED = createGovernedAI(...)
+          ...
+    message: >
+      OpenAI client call without a governance wrapper. The client was
+      constructed without GovernedOpenAI, so governance checks and budget
+      limits are not enforced. Wrap the OpenAI client with GovernedOpenAI
+      before calling chat.completions.create().
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-001b
+      category: governance
+      subcategory: [audit]
+      technology: [ai, openai]
+      references:
+        - https://docs.aumos.ai/guides/governed-openai
+
+  # ── AUMOS-002: Ungoverned Anthropic API call ─────────────────────────────────
+
+  - id: ungoverned-anthropic-call
+    patterns:
+      - pattern: $CLIENT.messages.create(...)
+      - pattern-not-inside: |
+          $GOVERNED = GovernedAnthropic(...)
+          ...
+      - pattern-not-inside: |
+          governed_anthropic = GovernedAnthropic(...)
+          ...
+    message: >
+      Anthropic API call without a governance wrapper. Wrap the Anthropic
+      client with GovernedAnthropic so governance checks and budget limits
+      are enforced before every messages.create() call.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-002
+      category: governance
+      subcategory: [audit]
+      technology: [ai, anthropic]
+      references:
+        - https://docs.aumos.ai/guides/governed-anthropic
+
+  # ── AUMOS-003: Ungoverned LangChain tool execution ───────────────────────────
+
+  - id: ungoverned-langchain-tool-run
+    pattern: $TOOL.run(...)
+    message: >
+      LangChain tool call without a governance callback. Add
+      AumOSGovernanceCallback to the agent or chain callbacks list so
+      every tool invocation is checked against the governance policy before
+      execution.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-003
+      category: governance
+      subcategory: [audit]
+      technology: [ai, langchain]
+      references:
+        - https://docs.aumos.ai/guides/governance-for-langchain
+
+  - id: ungoverned-langchain-chain-invoke
+    pattern: $CHAIN.invoke(...)
+    message: >
+      LangChain chain invoked without a governance callback. Add
+      AumOSGovernanceCallback to the chain callbacks so governance policy
+      is applied to every step.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-003b
+      category: governance
+      subcategory: [audit]
+      technology: [ai, langchain]
+      references:
+        - https://docs.aumos.ai/guides/governance-for-langchain
+
+  # ── AUMOS-004: Missing trust level check before tool invocation ──────────────
+
+  - id: missing-trust-check-before-tool-call
+    patterns:
+      - pattern: |
+          def $FUNC(...):
+              ...
+              $TOOL.run(...)
+      - pattern-not: |
+          def $FUNC(...):
+              ...
+              $GOVOBJ.check(...)
+              ...
+              $TOOL.run(...)
+      - pattern-not: |
+          def $FUNC(...):
+              ...
+              $GOVOBJ.verify(...)
+              ...
+              $TOOL.run(...)
+    message: >
+      Tool invocation in function '$FUNC' is not preceded by a governance
+      check. Call engine.check() or governance.verify() before invoking
+      this tool to ensure the caller has the required trust level.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-004
+      category: governance
+      subcategory: [audit]
+      technology: [ai]
+      references:
+        - https://docs.aumos.ai/guides/trust-checks
+
+  # ── AUMOS-005: Hardcoded trust level above safe threshold ────────────────────
+
+  - id: hardcoded-high-trust-level
+    patterns:
+      - pattern: trust_level = $VALUE
+      - metavariable-comparison:
+          metavariable: $VALUE
+          comparison: $VALUE > 3
+    message: >
+      High trust level ($VALUE) hardcoded as a literal. Use a named constant
+      from TrustLevel (e.g. TrustLevel.OPERATOR) so the trust model can be
+      changed centrally. Hardcoded numeric trust levels are brittle and make
+      refactoring dangerous.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-005
+      category: governance
+      subcategory: [maintainability]
+      technology: [ai]
+      references:
+        - https://docs.aumos.ai/reference/trust-levels
+
+  - id: hardcoded-high-trust-comparison
+    patterns:
+      - pattern: $VAR >= $VALUE
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: '^.*(?:trust|level|tier|clearance).*$'
+      - metavariable-comparison:
+          metavariable: $VALUE
+          comparison: $VALUE > 3
+    message: >
+      Trust level comparison uses hardcoded literal $VALUE. Replace with a
+      named constant from TrustLevel to keep the trust model maintainable.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-005b
+      category: governance
+      subcategory: [maintainability]
+      technology: [ai]
+
+  # ── AUMOS-006: Missing audit log after governance decision ───────────────────
+
+  - id: missing-audit-log-after-decision-python
+    patterns:
+      - pattern: |
+          $DECISION = $GATE.check(...)
+          ...
+      - pattern-not: |
+          $DECISION = $GATE.check(...)
+          ...
+          $LOGGER.log($DECISION)
+      - pattern-not: |
+          $DECISION = $GATE.check(...)
+          ...
+          audit.log(...)
+    message: >
+      Governance decision '$DECISION' is not recorded in the audit trail.
+      Call audit.log() with the decision result so that every governance
+      outcome is persisted for compliance and retrospective investigation.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-006
+      category: governance
+      subcategory: [audit]
+      technology: [ai]
+      references:
+        - https://docs.aumos.ai/guides/audit-logging
+
+  - id: missing-audit-log-after-decision-ts
+    patterns:
+      - pattern: |
+          const $DECISION = $GATE.evaluate(...);
+          ...
+      - pattern-not: |
+          const $DECISION = $GATE.evaluate(...);
+          ...
+          $LOGGER.log($DECISION);
+      - pattern-not: |
+          const $DECISION = $GATE.evaluate(...);
+          ...
+          audit.log(...);
+    message: >
+      Governance decision '$DECISION' is not logged to the audit trail.
+      Call audit.log() or auditLog() with the decision result to ensure
+      every governance outcome is recorded for compliance.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      id: AUMOS-006b
+      category: governance
+      subcategory: [audit]
+      technology: [ai]
+      references:
+        - https://docs.aumos.ai/guides/audit-logging
+
+  # ── AUMOS-007: Direct fetch to AI provider API ───────────────────────────────
+
+  - id: ungoverned-fetch-openai-api
+    patterns:
+      - pattern: fetch("https://api.openai.com/...", ...)
+    message: >
+      Direct fetch() to the OpenAI API bypasses all governance middleware.
+      Use the GovernedOpenAI client or createGovernedAI() from
+      '@aumos/governance' instead of calling the API endpoint directly.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      id: AUMOS-007
+      category: governance
+      subcategory: [audit]
+      technology: [ai, openai]
+      references:
+        - https://docs.aumos.ai/guides/governed-openai
+
+  - id: ungoverned-fetch-anthropic-api
+    patterns:
+      - pattern: fetch("https://api.anthropic.com/...", ...)
+    message: >
+      Direct fetch() to the Anthropic API bypasses all governance middleware.
+      Use the GovernedAnthropic client from '@aumos/governance' instead of
+      calling the API endpoint directly.
+    severity: WARNING
+    languages: [typescript, javascript]
+    metadata:
+      id: AUMOS-007b
+      category: governance
+      subcategory: [audit]
+      technology: [ai, anthropic]
+      references:
+        - https://docs.aumos.ai/guides/governed-anthropic
+
+  # ── AUMOS-008: Missing budget check before LLM call ─────────────────────────
+
+  - id: missing-budget-check-before-llm-call
+    patterns:
+      - pattern: |
+          def $FUNC(...):
+              ...
+              $CLIENT.chat(...)
+      - pattern-not: |
+          def $FUNC(...):
+              ...
+              $BUDGET.check(...)
+              ...
+              $CLIENT.chat(...)
+      - pattern-not: |
+          def $FUNC(...):
+              ...
+              budget.check(...)
+              ...
+              $CLIENT.chat(...)
+    message: >
+      LLM API call in function '$FUNC' is not preceded by a budget check.
+      Call budget.check() before every LLM request to enforce cost limits
+      and prevent runaway spend in agent loops.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      id: AUMOS-008
+      category: governance
+      subcategory: [cost]
+      technology: [ai]
+      references:
+        - https://docs.aumos.ai/guides/budget-governance

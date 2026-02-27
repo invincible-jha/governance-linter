@@ -1,5 +1,7 @@
 # governance-linter
 
+[![Governance Score](https://img.shields.io/badge/governance-self--assessed-blue)](https://github.com/aumos-ai/governance-linter)
+
 Static analysis catching ungoverned agent actions. Part of the [AumOS](https://github.com/muveraai/aumos-oss) open-source governance suite.
 
 Ships as two complementary tools:

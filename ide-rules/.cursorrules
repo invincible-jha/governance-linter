@@ -1,0 +1,218 @@
+# AumOS Governance Rules for Cursor
+#
+# These rules are loaded automatically by Cursor when this file is present
+# in the project root (or .cursor/ directory). They instruct the AI coding
+# assistant to generate governance-compliant agent code by default.
+#
+# Reference: https://docs.aumos.ai/guides/governance-overview
+# License: Apache-2.0 — Copyright (c) 2026 MuVeraAI Corporation
+
+## Core principle
+
+Every AI API call, tool invocation, and agent action must pass through the
+AumOS governance layer before execution. The governance layer enforces trust
+checks, budget limits, consent verification, and audit logging. Code that
+bypasses it is non-compliant regardless of intent.
+
+---
+
+## Rule 1: Always wrap AI API clients with a governed wrapper
+
+Never instantiate a raw OpenAI, Anthropic, or LangChain client without
+wrapping it in the corresponding governed wrapper. The wrapper injects
+governance checks transparently so existing call signatures do not change.
+
+### Python
+
+```python
+# WRONG — raw client, no governance checks
+from openai import OpenAI
+client = OpenAI()
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": prompt}],
+)
+
+# CORRECT — governed wrapper enforces checks before every request
+from aumos_governance import GovernedOpenAI
+client = GovernedOpenAI(trust_level=2)
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": prompt}],
+)
+```
+
+### TypeScript
+
+```typescript
+// WRONG — raw client, no governance checks
+import OpenAI from 'openai';
+const client = new OpenAI();
+const response = await client.chat.completions.create({ ... });
+
+// CORRECT — governed wrapper enforces checks before every request
+import { createGovernedAI } from '@aumos/governance';
+const client = createGovernedAI({ trustLevel: 2, budget: { daily: 10 } });
+const response = await client.chat.completions.create({ ... });
+```
+
+---
+
+## Rule 2: Always add the AumOS governance callback to LangChain agents and chains
+
+```python
+# WRONG — no governance callback
+from langchain.agents import AgentExecutor
+agent = AgentExecutor(agent=agent_runnable, tools=tools)
+result = agent.invoke({"input": user_query})
+
+# CORRECT — governance callback applied to every tool invocation
+from langchain.agents import AgentExecutor
+from aumos_governance.langchain import AumOSGovernanceCallback
+
+governance_callback = AumOSGovernanceCallback(trust_level=2)
+agent = AgentExecutor(
+    agent=agent_runnable,
+    tools=tools,
+    callbacks=[governance_callback],
+)
+result = agent.invoke({"input": user_query})
+```
+
+---
+
+## Rule 3: Always include an audit log call after a governance decision
+
+Every call to engine.check() / governance.verify() must be followed by an
+audit.log() call that records the outcome. Never return from a function after
+a governance decision without logging the result.
+
+```python
+# WRONG — decision not logged
+async def run_action(action: str) -> bool:
+    permitted = await engine.check(action)
+    return permitted
+
+# CORRECT — decision recorded to audit trail
+async def run_action(action: str) -> bool:
+    permitted = await engine.check(action)
+    await audit.log({"action": action, "permitted": permitted})
+    return permitted
+```
+
+```typescript
+// WRONG — decision not logged
+async function runAction(action: string): Promise<boolean> {
+  const permitted = await engine.check(action);
+  return permitted;
+}
+
+// CORRECT — decision recorded to audit trail
+async function runAction(action: string): Promise<boolean> {
+  const permitted = await engine.check(action);
+  await audit.log({ action, permitted });
+  return permitted;
+}
+```
+
+---
+
+## Rule 4: Never hardcode trust levels above 3
+
+Trust levels must be referenced through named constants so the trust model
+can be updated centrally without hunting for magic numbers in the codebase.
+
+```python
+# WRONG — magic number
+if agent.trust_level >= 4:
+    perform_privileged_action()
+
+# CORRECT — named constant
+from aumos_core import TrustLevel
+if agent.trust_level >= TrustLevel.OPERATOR:
+    perform_privileged_action()
+```
+
+```typescript
+// WRONG — magic number
+if (agent.trustLevel >= 4) {
+  performPrivilegedAction();
+}
+
+// CORRECT — named constant
+import { TrustLevel } from '@aumos/core';
+if (agent.trustLevel >= TrustLevel.OPERATOR) {
+  performPrivilegedAction();
+}
+```
+
+Trust level reference:
+  0 = UNTRUSTED   — anonymous, no capabilities
+  1 = USER        — authenticated user, limited tool access
+  2 = TRUSTED     — verified user or service, standard tool access
+  3 = OPERATOR    — privileged service account, elevated capabilities
+  Values above 3 must not be hardcoded; use named constants only.
+
+---
+
+## Rule 5: Always check budget before making API calls
+
+```python
+# WRONG — no budget check
+async def generate_summary(text: str) -> str:
+    response = await openai_client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": f"Summarise: {text}"}],
+    )
+    return response.choices[0].message.content
+
+# CORRECT — budget verified before spend
+async def generate_summary(text: str) -> str:
+    await budget.check({"operation": "chat-completion"})
+    response = await governed_openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "user", "content": f"Summarise: {text}"}],
+    )
+    return response.choices[0].message.content
+```
+
+---
+
+## Rule 6: New agent tools require trust and budget annotations
+
+When creating a new tool function, always annotate it with its required trust
+level and expected budget cost so the governance layer can enforce them.
+
+```python
+from aumos_governance import governed
+
+@governed(trust_level=2, budget=5.0)
+def search_web(query: str) -> str:
+    """Search the web and return a summary of results."""
+    return search_api.search(query)
+```
+
+```typescript
+import { governedTool } from '@aumos/governance';
+
+export const searchWeb = governedTool(
+  { trustLevel: 2, budgetCost: 5.0 },
+  async (query: string): Promise<string> => {
+    return searchApi.search(query);
+  },
+);
+```
+
+---
+
+## Forbidden patterns — never generate these
+
+- Raw `fetch()` calls to `api.openai.com` or `api.anthropic.com`
+- Trust level comparisons with numeric literals above 3
+- `engine.check()` calls not followed by `audit.log()`
+- LangChain agents without `AumOSGovernanceCallback` in the callbacks list
+- Any identifier from the fire line: progressLevel, promoteLevel,
+  computeTrustScore, behavioralScore, adaptiveBudget, optimizeBudget,
+  predictSpending, detectAnomaly, generateCounterfactual,
+  PersonalWorldModel, MissionAlignment, SocialTrust, CognitiveLoop,
+  AttentionFilter, GOVERNANCE_PIPELINE

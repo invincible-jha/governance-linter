@@ -1,0 +1,71 @@
+{
+  "name": "aumos-governance-linter",
+  "displayName": "AumOS Governance Linter",
+  "description": "Real-time governance linting for AI agent code — detect ungoverned tool calls, missing trust checks, and budget violations",
+  "version": "0.1.0",
+  "publisher": "aumos-ai",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aumos-ai/governance-linter"
+  },
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Linters", "Other"],
+  "keywords": ["ai", "governance", "trust", "agent", "security", "linter"],
+  "activationEvents": [
+    "onLanguage:typescript",
+    "onLanguage:python",
+    "onLanguage:javascript"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "AumOS Governance Linter",
+      "properties": {
+        "aumos.governance.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable governance linting"
+        },
+        "aumos.governance.severity": {
+          "type": "string",
+          "enum": ["error", "warning", "information", "hint"],
+          "default": "warning",
+          "description": "Default severity level for governance violations"
+        },
+        "aumos.governance.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run governance checks on file save"
+        },
+        "aumos.governance.checkOnType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run governance checks as you type (may impact performance)"
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "aumos.governance.lint",
+        "title": "AumOS: Run Governance Lint"
+      },
+      {
+        "command": "aumos.governance.fix",
+        "title": "AumOS: Auto-Fix Governance Issues"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "tsup src/extension.ts --format cjs --outDir dist --external vscode",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package",
+    "lint": "eslint src --ext .ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "@vscode/vsce": "^2.24.0"
+  }
+}

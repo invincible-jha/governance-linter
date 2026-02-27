@@ -1,0 +1,94 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 MuVeraAI Corporation
+#
+# AumOS Governance Linter — pre-commit hook definitions
+#
+# Add this repository as a pre-commit source in your project's
+# .pre-commit-config.yaml:
+#
+#   repos:
+#     - repo: https://github.com/aumos-ai/governance-linter
+#       rev: v0.1.0
+#       hooks:
+#         - id: governance-lint
+#         - id: fire-line-audit
+#
+# Both hooks install from PyPI so no local build step is needed.
+# The `additional_dependencies` list pins the package version to keep
+# CI builds deterministic — update it when you bump the hook rev.
+
+- id: governance-lint
+  name: AumOS Governance Lint
+  description: >
+    Detect ungoverned AI tool calls, missing trust checks, missing budget
+    checks, and unlogged governance decisions in Python source files.
+    Fails with exit code 1 when any governance violation is found.
+  entry: governance-lint
+  language: python
+  types_or: [python]
+  additional_dependencies:
+    - "aumos-governance-linter>=0.1.0"
+  args: []
+  # Pass --format json to get machine-readable output in CI:
+  #   args: [--format, json]
+  # Restrict to specific rules:
+  #   args: [--rules, no-ungoverned-tool-call, require-budget-check]
+  pass_filenames: true
+  require_serial: false
+
+- id: governance-lint-js
+  name: AumOS Governance Lint (JS/TS via ESLint)
+  description: >
+    Run eslint-plugin-aumos-governance against JavaScript and TypeScript
+    files. Requires ESLint >= 9 and the eslint-plugin-aumos-governance
+    package to be installed in the project's node_modules.
+  entry: npx eslint --plugin aumos-governance --rule "aumos-governance/no-ungoverned-tool-call: error"
+  language: node
+  types_or: [javascript, ts]
+  additional_dependencies:
+    - "eslint@>=9.0.0"
+    - "eslint-plugin-aumos-governance@>=0.1.0"
+  pass_filenames: true
+  require_serial: false
+
+- id: fire-line-audit
+  name: AumOS Fire Line Audit
+  description: >
+    Scan every staged file for forbidden identifiers that cross the
+    governance fire line — proprietary internal identifiers that must never
+    appear in open-source code. Fails with exit code 1 if any forbidden
+    identifier is found.
+
+    Forbidden identifiers (see FIRE_LINE.md for rationale):
+      progressLevel, promoteLevel, computeTrustScore, behavioralScore,
+      adaptiveBudget, optimizeBudget, predictSpending,
+      detectAnomaly, generateCounterfactual,
+      PersonalWorldModel, MissionAlignment, SocialTrust,
+      CognitiveLoop, AttentionFilter, GOVERNANCE_PIPELINE
+  entry: fire-line-audit
+  language: python
+  types_or: [python, ts, javascript, go, rust]
+  additional_dependencies:
+    - "aumos-governance-linter>=0.1.0"
+  pass_filenames: true
+  require_serial: false
+
+- id: semgrep-governance
+  name: AumOS Semgrep Governance Rules
+  description: >
+    Run the AumOS Semgrep governance rule set against staged files.
+    Requires semgrep to be installed (pip install semgrep).
+    Catches patterns that are harder to express as pure AST rules,
+    such as cross-language API call detection.
+  entry: semgrep
+  language: python
+  types_or: [python, ts, javascript]
+  additional_dependencies:
+    - "semgrep>=1.60.0"
+  args:
+    - --config
+    - semgrep/governance-rules.yml
+    - --error
+    - --quiet
+  pass_filenames: false
+  require_serial: true

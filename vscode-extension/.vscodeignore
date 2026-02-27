@@ -1,0 +1,32 @@
+# Source and tooling — excluded from packaged extension
+src/**
+tsconfig.json
+tsup.config.ts
+.eslintrc*
+.eslintignore
+.prettierrc*
+.editorconfig
+*.map
+
+# Development dependencies
+node_modules/**
+
+# Test artifacts
+**/*.test.ts
+**/*.spec.ts
+**/__tests__/**
+coverage/**
+
+# Documentation and metadata not needed at runtime
+CHANGELOG.md
+CONTRIBUTING.md
+.github/**
+
+# Build intermediates
+dist/**/*.map
+
+# OS and editor artifacts
+.DS_Store
+Thumbs.db
+.vscode/**
+*.log
