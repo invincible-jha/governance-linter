@@ -1,0 +1,151 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2026 MuVeraAI Corporation
+#
+# governance-lint — reusable GitHub Action
+#
+# Runs the aumos governance linter against Python source code and optionally
+# fails the workflow based on the configured severity threshold.
+#
+# Usage in a workflow:
+#
+#   - uses: aumos-ai/governance-linter/.github/actions/governance-lint@main
+#     with:
+#       source_dir: src/
+#       fail_on_severity: error
+
+name: "AumOS Governance Lint"
+description: "Run the AumOS governance linter and annotate pull requests with violations."
+
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  source_dir:
+    description: "Directory to scan for Python files."
+    required: false
+    default: "."
+
+  rules_config:
+    description: |
+      Comma-separated list of rule IDs to enable. Leave empty to use all
+      built-in rules (no-ungoverned-tool-call, no-unlogged-action,
+      no-hardcoded-trust-level, require-consent-check, require-budget-check).
+    required: false
+    default: ""
+
+  fail_on_severity:
+    description: |
+      Fail the workflow if any violation at or above this severity is found.
+      Accepted values: error | warning | info | never.
+      - error:   fail only on error-level violations (default)
+      - warning: fail on warnings and errors
+      - info:    fail on any violation
+      - never:   never fail (report only)
+    required: false
+    default: "error"
+
+  output_format:
+    description: "Output format for the violation report. Accepted: text | json."
+    required: false
+    default: "text"
+
+  report_path:
+    description: "File path to write the JSON report to (only used when output_format=json)."
+    required: false
+    default: "governance-lint-report.json"
+
+  python_version:
+    description: "Python version to use when running the linter."
+    required: false
+    default: "3.11"
+
+outputs:
+  violation_count:
+    description: "Total number of governance violations found."
+    value: ${{ steps.lint.outputs.violation_count }}
+
+  report_path:
+    description: "Path to the generated JSON report (only populated when output_format=json)."
+    value: ${{ steps.lint.outputs.report_path }}
+
+  passed:
+    description: "Boolean string (true/false) indicating whether the lint check passed."
+    value: ${{ steps.lint.outputs.passed }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up Python ${{ inputs.python_version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Install governance-linter
+      shell: bash
+      run: |
+        pip install --quiet aumos-governance-linter
+
+    - name: Run governance-lint
+      id: lint
+      shell: bash
+      env:
+        GOVERNANCE_LINT_SOURCE_DIR: ${{ inputs.source_dir }}
+        GOVERNANCE_LINT_RULES: ${{ inputs.rules_config }}
+        GOVERNANCE_LINT_FORMAT: ${{ inputs.output_format }}
+        GOVERNANCE_LINT_REPORT_PATH: ${{ inputs.report_path }}
+      run: |
+        set +e
+
+        # Build CLI arguments
+        ARGS="${GOVERNANCE_LINT_SOURCE_DIR}"
+        if [ -n "${GOVERNANCE_LINT_RULES}" ]; then
+          ARGS="${ARGS} --rules ${GOVERNANCE_LINT_RULES}"
+        fi
+
+        if [ "${GOVERNANCE_LINT_FORMAT}" = "json" ]; then
+          ARGS="${ARGS} --format json"
+          governance-lint ${ARGS} > "${GOVERNANCE_LINT_REPORT_PATH}" 2>&1
+          EXIT_CODE=$?
+          # Count violations from JSON output
+          VIOLATION_COUNT=$(python -c "
+        import json, sys
+        try:
+            with open('${GOVERNANCE_LINT_REPORT_PATH}') as f:
+                data = json.load(f)
+            print(len(data))
+        except Exception:
+            print(0)
+        " 2>/dev/null || echo "0")
+          echo "report_path=${GOVERNANCE_LINT_REPORT_PATH}" >> "$GITHUB_OUTPUT"
+        else
+          OUTPUT=$(governance-lint ${ARGS} 2>&1)
+          EXIT_CODE=$?
+          echo "${OUTPUT}"
+          # Extract violation count from text output (last line contains count)
+          VIOLATION_COUNT=$(echo "${OUTPUT}" | grep -oP '^\s*\K\d+(?= governance violation)' | tail -1 || echo "0")
+          echo "report_path=" >> "$GITHUB_OUTPUT"
+        fi
+
+        echo "violation_count=${VIOLATION_COUNT}" >> "$GITHUB_OUTPUT"
+
+        # Determine pass/fail
+        FAIL_ON="${{ inputs.fail_on_severity }}"
+        if [ "${FAIL_ON}" = "never" ] || [ "${VIOLATION_COUNT}" = "0" ]; then
+          echo "passed=true" >> "$GITHUB_OUTPUT"
+          exit 0
+        else
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+          # Annotate PR with the violations count
+          echo "::warning::governance-lint found ${VIOLATION_COUNT} violation(s). Review the lint output above."
+          exit 1
+        fi
+
+    - name: Upload JSON report artifact
+      if: inputs.output_format == 'json' && always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: governance-lint-report
+        path: ${{ inputs.report_path }}
+        if-no-files-found: ignore
+        retention-days: 30

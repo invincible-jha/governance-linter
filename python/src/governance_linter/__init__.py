@@ -25,8 +25,19 @@ Or from the command line::
 
 """
 
+from .autofix import AutoFixer, CodeFix
 from .linter import GovernanceLinter
 from .rules.base import BaseRule, LintViolation
+from .suppression import SuppressionDetector, SuppressionReport, filter_suppressed
 
-__all__ = ["GovernanceLinter", "BaseRule", "LintViolation"]
+__all__ = [
+    "GovernanceLinter",
+    "BaseRule",
+    "LintViolation",
+    "AutoFixer",
+    "CodeFix",
+    "SuppressionDetector",
+    "SuppressionReport",
+    "filter_suppressed",
+]
 __version__ = "0.1.0"
